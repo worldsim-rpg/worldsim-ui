@@ -1,0 +1,55 @@
+@import "tailwindcss";
+
+/*
+ * Theme "warm" — approved in previz (2026-06-10).
+ * All colors live here as tokens; do not hardcode hex values in components.
+ */
+@theme {
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+
+  /* base surfaces */
+  --color-bg: #1d1b18;
+  --color-panel: #211e1a;
+  --color-input-bg: #16140f;
+  --color-chip-bg: #231f1b;
+  --color-row-sel: #2a2620;
+
+  /* text */
+  --color-ink: #e9e0cd;
+  --color-ink-soft: #d8cfbb;
+  --color-muted: #a99f8a;
+  --color-faint: #6f685a;
+  --color-tag: #8a8170;
+  --color-chip-ink: #c8bda6;
+  --color-chip-act-ink: #e2d3b0;
+
+  /* accent and lines */
+  --color-accent: #c0892e;
+  --color-line: #3a352d;
+  --color-line-soft: #2c2823;
+  --color-line-faint: #34302a;
+  --color-chip-act-line: #4a4030;
+
+  /* dialogue bubbles */
+  --color-npc-msg: #262019;
+  --color-npc-msg-ink: #e7dcc4;
+  --color-you-msg: #2c352e;
+  --color-you-msg-ink: #d8e4db;
+  --color-you-msg-line: #3a4740;
+
+  /* misc */
+  --color-pip-off: #403a32;
+  --color-cond-ok: #8fbf8f;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background: var(--color-bg);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+}
