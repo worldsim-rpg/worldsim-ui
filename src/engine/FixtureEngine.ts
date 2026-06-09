@@ -84,8 +84,11 @@ export class FixtureEngine implements WorldEngine {
 
   // --- WorldEngine ----------------------------------------------------------
 
-  async getState(): Promise<UiWorldState> {
-    return this.buildState()
+  async start(): Promise<{ state: UiWorldState; narrative: string }> {
+    return {
+      state: this.buildState(),
+      narrative: this.arrivalNarrative(this.currentLocation().id, null),
+    }
   }
 
   async submitTurn(input: TurnInput): Promise<TurnOutput> {
@@ -108,11 +111,6 @@ export class FixtureEngine implements WorldEngine {
       default:
         return this.narrate(FALLBACK_NARRATIVE)
     }
-  }
-
-  /** Narrative shown on game start (link phrase + location description). */
-  initialNarrative(): string {
-    return this.arrivalNarrative(this.currentLocation().id, null)
   }
 
   // --- intent parsing (mirrors the orchestrator's intent step) ---------------
