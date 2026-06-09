@@ -40,6 +40,24 @@
   /* misc */
   --color-pip-off: #403a32;
   --color-cond-ok: #8fbf8f;
+  /* risky actions marker (round 8) */
+  --color-risk: #b0563b;
+  /* skill / journal markers (round 6) */
+  --color-skill: #7d9bbf;
+  --color-item: #8fbf8f;
+  /* gray tile for strangers (round 4) */
+  --color-tile-unknown: #5a5f6a;
+}
+
+@keyframes ws-blink {
+  0%,
+  49% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0;
+  }
 }
 
 html,

@@ -16,7 +16,16 @@ import type {
   PlayerProgression,
   WorldMeta,
 } from '../types/canon'
-import type { ActionChip, ExitChip, GlyphKey, NoticedItem } from '../types/ui'
+import type {
+  ActionChip,
+  CheckResult,
+  ExitChip,
+  GlyphKey,
+  NoticedItem,
+} from '../types/ui'
+
+/** Fixture chips omit `available`: the engine computes availability. */
+export type FixtureChip = Omit<ActionChip, 'available'>
 
 // --- world meta and settings ------------------------------------------------
 
@@ -150,7 +159,7 @@ export const characters: Character[] = [
     id: 'npc-hooded',
     name: 'Человек в капюшоне',
     is_player: false,
-    role: 'незнакомец',
+    role: 'незнакомец у стойки',
     faction_id: null,
     public_traits: ['молчаливый'],
     hidden_traits: ['ждёт связного'],
@@ -239,9 +248,11 @@ export interface FixtureAction {
   /** Optional effects on the world state. */
   addToInventory?: string
   removeNoticedLabel?: string
-  /** One-time actions disappear from chips after use. */
+  /** One-time actions become unavailable (dimmed chips) after use. */
   oneTime?: boolean
   addFact?: string
+  /** Deterministic skill check shown as a plate above the narrative (round 8). */
+  check?: CheckResult
 }
 
 export interface FixtureLocationExtras {
@@ -251,7 +262,7 @@ export interface FixtureLocationExtras {
   lookText: string
   exits: Array<ExitChip & { keywords: string[] }>
   /** Contextual chips (base "осмотреться"/"инвентарь" are added by the engine). */
-  chips: ActionChip[]
+  chips: FixtureChip[]
   actions: FixtureAction[]
   noticed: NoticedItem[]
 }
@@ -273,6 +284,13 @@ export const locationExtras: Record<string, FixtureLocationExtras> = {
     chips: [
       { id: 'chip-take-bottle', label: 'взять бутылку', kind: 'atomic', command: 'взять бутылку' },
       { id: 'chip-listen', label: 'прислушаться', kind: 'atomic', command: 'прислушаться' },
+      {
+        id: 'chip-take-coin',
+        label: 'взять монету',
+        kind: 'atomic',
+        command: 'взять монету',
+        risky: true,
+      },
       { id: 'chip-ask-about', label: 'Спросить о…', kind: 'template', command: 'Спросить о ' },
     ],
     actions: [
@@ -293,16 +311,18 @@ export const locationExtras: Record<string, FixtureLocationExtras> = {
           'Двое за дальним столом шепчутся. Долетают обрывки: «...не в этот прилив... бочки уже ' +
           'в подвале...» Заметив твой взгляд, они умолкают и утыкаются в кружки.',
         addFact: 'бочки уже в подвале таверны',
+        check: { skill: 'Внимание', success: true },
       },
       {
-        id: 'action-take-coin',
+        id: 'chip-take-coin',
         match: ['взять монет', 'подобрать монет'],
         narrative:
-          'Ты накрываешь монету ладонью и сгребаешь к себе. Медь, истёртая до гладкости; ' +
-          'на ребре — насечка в виде якоря.',
+          'Ты накрываешь монету ладонью и, дождавшись, пока Хальт отвернётся, сгребаешь к себе. ' +
+          'Медь истёрта до гладкости; на ребре — насечка в виде якоря.',
         addToInventory: 'медная монета с насечкой',
         removeNoticedLabel: 'оброненная монета',
         oneTime: true,
+        check: { skill: 'Скрытность', success: true },
       },
     ],
     noticed: [
@@ -348,6 +368,7 @@ export const locationExtras: Record<string, FixtureLocationExtras> = {
           'Такие вешают на сети, но этот зелёный, чужой.',
         addToInventory: 'зелёный стеклянный шарик',
         oneTime: true,
+        check: { skill: 'Внимание', success: true },
       },
     ],
     noticed: [
@@ -370,7 +391,13 @@ export const locationExtras: Record<string, FixtureLocationExtras> = {
     ],
     chips: [
       { id: 'chip-take-salt', label: 'взять горсть соли', kind: 'atomic', command: 'взять горсть соли' },
-      { id: 'chip-vat', label: 'заглянуть в чан', kind: 'atomic', command: 'заглянуть в чан' },
+      {
+        id: 'chip-vat',
+        label: 'заглянуть в чан',
+        kind: 'atomic',
+        command: 'заглянуть в чан',
+        risky: true,
+      },
       { id: 'chip-ask-about-2', label: 'Спросить о…', kind: 'template', command: 'Спросить о ' },
     ],
     actions: [
@@ -387,9 +414,10 @@ export const locationExtras: Record<string, FixtureLocationExtras> = {
         id: 'chip-vat',
         match: ['заглянуть в чан', 'треснувший чан', 'осмотреть чан'],
         narrative:
-          'На дне треснувшего чана — не соль: тёмные разводы и обрывок просмолённой верёвки. ' +
-          'Чаном давно не варят, но к нему натоптано.',
+          'Ты успеваешь разглядеть дно: не соль — тёмные разводы и обрывок просмолённой верёвки. ' +
+          'Чаном давно не варят, но к нему натоптано. За спиной скрипит песок: тебя заметили.',
         addFact: 'к мёртвому чану на солеварне натоптана тропа',
+        check: { skill: 'Скрытность', success: false },
       },
     ],
     noticed: [
@@ -400,9 +428,87 @@ export const locationExtras: Record<string, FixtureLocationExtras> = {
 }
 
 /** Base chips present in every location (brainstorm round 2). */
-export const baseChips: ActionChip[] = [
+export const baseChips: FixtureChip[] = [
   { id: 'chip-look', label: 'осмотреться', kind: 'atomic', command: 'осмотреться' },
   { id: 'chip-inventory', label: 'инвентарь', kind: 'atomic', command: 'инвентарь' },
+]
+
+// --- NPC initiative triggers (brainstorm round 4) --------------------------------
+
+export interface FixtureTrigger {
+  id: string
+  /** What fires the trigger: entering a location or a fixture action. */
+  on: { type: 'enter'; locationId: string } | { type: 'action'; actionId: string }
+  /** Speaker; must be present in the player's location to actually speak. */
+  npcId: string
+  text: string
+}
+
+/** All triggers fire once per game. */
+export const triggers: FixtureTrigger[] = [
+  {
+    id: 'trg-road-mara',
+    on: { type: 'enter', locationId: 'loc-road' },
+    npcId: 'npc-mara',
+    text: '«Эй! С колеи сойди, — окликает возчица. — По ночам тут возят без фонарей, затопчут и не заметят».',
+  },
+  {
+    id: 'trg-salt-kosma',
+    on: { type: 'enter', locationId: 'loc-saltworks' },
+    npcId: 'npc-kosma',
+    text: '«Чужим тут делать нечего, — бросает старик, не оборачиваясь. — Ну, раз пришёл — мешки не трогай».',
+  },
+  {
+    id: 'trg-bottle-halt',
+    on: { type: 'action', actionId: 'chip-take-bottle' },
+    npcId: 'npc-halt',
+    text: '«Эту бутылку вчера оставил тот, в капюшоне, — негромко говорит Хальт. — Занятно, что она тебе приглянулась».',
+  },
+  {
+    id: 'trg-vat-kosma',
+    on: { type: 'action', actionId: 'chip-vat' },
+    npcId: 'npc-kosma',
+    text: '«Я же сказал: к чану не подходить! — лопатка замирает в рассоле. — Шёл бы ты отсюда, любопытный».',
+  },
+]
+
+// --- stranger reveals (brainstorm round 4) ----------------------------------------
+
+export interface FixtureReveal {
+  npcId: string
+  /** Reveal fires when talking to the NPC while carrying a matching item. */
+  requiresInventorySubstring: string
+  reply: string
+  newName: string
+  newRole: string
+}
+
+export const reveals: FixtureReveal[] = [
+  {
+    npcId: 'npc-hooded',
+    requiresInventorySubstring: 'шарик',
+    reply:
+      'Капюшон откидывается на палец — ровно настолько, чтобы ты увидел усмешку. ' +
+      '«Зелёное стекло из дюн... Значит, нашёл всё-таки. Меня зовут Вейр. ' +
+      'Приходи к солеварне после заката — узнаешь, чьи это лодки ходят без огней».',
+    newName: 'Вейр',
+    newRole: 'связной с юга',
+  },
+]
+
+// --- skill growth (brainstorm round 6) ---------------------------------------------
+
+export interface GrowthRule {
+  counter: string
+  attribute: 'perception' | 'empathy' | 'lore' | 'athletics' | 'subterfuge'
+  /** Attribute +1 every `every` increments of the counter (cap 5). */
+  every: number
+}
+
+export const growthRules: GrowthRule[] = [
+  { counter: 'looked_around', attribute: 'perception', every: 3 },
+  { counter: 'talked_to_npcs', attribute: 'empathy', every: 3 },
+  { counter: 'explored_locations', attribute: 'lore', every: 2 },
 ]
 
 // --- canned dialogue ------------------------------------------------------------

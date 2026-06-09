@@ -5,6 +5,10 @@
  * world mutation -> fresh UI state. No LLM calls, no randomness; responses
  * come from src/fixture/world.ts. Fixture answers instantly (brainstorm
  * round 3: no simulated LLM latency until Phase 2).
+ *
+ * The whole mutable state is serializable (dump/restore) for the
+ * localStorage autosave (brainstorm round 8). In Phase 2 persistence moves
+ * server-side to the orchestrator.
  */
 
 import type {
@@ -16,11 +20,12 @@ import type {
 } from '../types/canon'
 import type {
   NoticedItem,
+  SkillUp,
   TurnInput,
   TurnOutput,
   UiWorldState,
 } from '../types/ui'
-import { CONDITION_LABELS } from '../types/ui'
+import { ATTRIBUTE_LABELS, CONDITION_LABELS } from '../types/ui'
 import {
   DIFFICULTY_LABELS,
   FALLBACK_NARRATIVE,
@@ -28,12 +33,15 @@ import {
   baseChips,
   characters as fixtureCharacters,
   dialogues,
+  growthRules,
   locationExtras,
   locations as fixtureLocations,
   meta as fixtureMeta,
   npcExtras,
   progression as fixtureProgression,
+  reveals,
   settings as fixtureSettings,
+  triggers,
   type FixtureAction,
   type FixtureLocationExtras,
 } from '../fixture/world'
@@ -49,11 +57,26 @@ const MOVE_PREFIXES = [
 const LOOK_COMMANDS = ['осмотреться', 'осмотр', 'оглядеться', 'оглянуться']
 const INVENTORY_COMMANDS = ['инвентарь', 'рюкзак']
 
+const ATTRIBUTE_CAP = 5
+
 interface ParsedTurn {
   intent: Intent
   npc?: Character
   exitTo?: string
   action?: FixtureAction
+}
+
+/** Serializable snapshot of everything the engine mutates. */
+export interface FixtureSave {
+  meta: WorldMeta
+  characters: Character[]
+  locations: Location[]
+  progression: PlayerProgression
+  noticed: Record<string, NoticedItem[]>
+  usedActions: string[]
+  fallbackIndex: Record<string, number>
+  knownNpcs: string[]
+  firedTriggers: string[]
 }
 
 export class FixtureEngine implements WorldEngine {
@@ -63,12 +86,29 @@ export class FixtureEngine implements WorldEngine {
   private progression: PlayerProgression
   /** Remaining "Замечаешь" items per location id. */
   private noticed: Record<string, NoticedItem[]>
-  /** Ids of one-time fixture actions already used. */
-  private usedActions = new Set<string>()
+  /** Ids of one-time fixture actions already used (their chips go dim). */
+  private usedActions: Set<string>
   /** Per-NPC rotation index for dialogue fallback lines. */
-  private fallbackIndex: Record<string, number> = {}
+  private fallbackIndex: Record<string, number>
+  /** NPCs the player knows (strangers are revealed in-game, round 4). */
+  private knownNpcs: Set<string>
+  /** Once-only initiative triggers that already fired (round 4). */
+  private firedTriggers: Set<string>
 
-  constructor() {
+  constructor(save?: FixtureSave) {
+    if (save) {
+      const s = structuredClone(save)
+      this.meta = s.meta
+      this.characters = s.characters
+      this.locations = s.locations
+      this.progression = s.progression
+      this.noticed = s.noticed
+      this.usedActions = new Set(s.usedActions)
+      this.fallbackIndex = s.fallbackIndex
+      this.knownNpcs = new Set(s.knownNpcs)
+      this.firedTriggers = new Set(s.firedTriggers)
+      return
+    }
     // Deep-clone the fixture so "new game" is just `new FixtureEngine()`.
     this.meta = structuredClone(fixtureMeta)
     this.characters = structuredClone(fixtureCharacters)
@@ -80,6 +120,29 @@ export class FixtureEngine implements WorldEngine {
         structuredClone(ex.noticed),
       ]),
     )
+    this.usedActions = new Set()
+    this.fallbackIndex = {}
+    this.knownNpcs = new Set(
+      Object.entries(npcExtras)
+        .filter(([, ex]) => ex.known)
+        .map(([id]) => id),
+    )
+    this.firedTriggers = new Set()
+  }
+
+  /** Snapshot for the localStorage autosave. */
+  dump(): FixtureSave {
+    return structuredClone({
+      meta: this.meta,
+      characters: this.characters,
+      locations: this.locations,
+      progression: this.progression,
+      noticed: this.noticed,
+      usedActions: [...this.usedActions],
+      fallbackIndex: this.fallbackIndex,
+      knownNpcs: [...this.knownNpcs],
+      firedTriggers: [...this.firedTriggers],
+    })
   }
 
   // --- WorldEngine ----------------------------------------------------------
@@ -191,21 +254,41 @@ export class FixtureEngine implements WorldEngine {
 
   private runConverse(npc: Character, text: string): TurnOutput {
     const norm = text.toLowerCase()
-    const table = dialogues[npc.id]
-    const keyed = table.keyed.find((k) => k.keywords.some((kw) => norm.includes(kw)))
     let reply: string
-    if (keyed) {
-      reply = keyed.reply
+
+    // Stranger reveal (round 4): talking while carrying the matching item
+    // uncovers the name; the gray tile colors up on the next render.
+    const reveal = reveals.find(
+      (r) =>
+        r.npcId === npc.id &&
+        !this.knownNpcs.has(npc.id) &&
+        this.progression.inventory.some((i) =>
+          i.toLowerCase().includes(r.requiresInventorySubstring),
+        ),
+    )
+    if (reveal) {
+      this.knownNpcs.add(npc.id)
+      npc.name = reveal.newName
+      npc.role = reveal.newRole
+      reply = reveal.reply
     } else {
-      const i = this.fallbackIndex[npc.id] ?? 0
-      reply = table.fallbacks[i % table.fallbacks.length]
-      this.fallbackIndex[npc.id] = i + 1
+      const table = dialogues[npc.id]
+      const keyed = table.keyed.find((k) => k.keywords.some((kw) => norm.includes(kw)))
+      if (keyed) {
+        reply = keyed.reply
+      } else {
+        const i = this.fallbackIndex[npc.id] ?? 0
+        reply = table.fallbacks[i % table.fallbacks.length]
+        this.fallbackIndex[npc.id] = i + 1
+      }
     }
-    this.bumpCounter('talked_to_npcs')
+
+    const skillUps = this.bumpCounter('talked_to_npcs')
     return {
       kind: 'dialogue',
       playerEcho: text,
       npcReply: { speakerId: npc.id, text: reply },
+      skillUps,
       state: this.buildState(),
     }
   }
@@ -218,26 +301,36 @@ export class FixtureEngine implements WorldEngine {
     this.pc().location_id = dest.id
     this.meta.tick += 1
     dest.discovered = true
+    let skillUps: SkillUp[] = []
     if (!dest.visited) {
       dest.visited = true
-      this.bumpCounter('explored_locations')
+      skillUps = this.bumpCounter('explored_locations')
     }
+    const initiative = this.fireTriggers(
+      (t) => t.on.type === 'enter' && t.on.locationId === dest.id,
+    )
     return {
       kind: 'move',
       movedToLocationId: dest.id,
       narrative: this.arrivalNarrative(dest.id, from),
+      initiative,
+      skillUps,
       state: this.buildState(),
     }
   }
 
   private runLookAround(): TurnOutput {
-    this.bumpCounter('looked_around')
-    return this.narrate(this.extras().lookText)
+    const skillUps = this.bumpCounter('looked_around')
+    return { ...this.narrate(this.extras().lookText), skillUps }
   }
 
   private runFixtureAction(action: FixtureAction): TurnOutput {
     if (action.oneTime) this.usedActions.add(action.id)
-    if (action.addToInventory) this.progression.inventory.push(action.addToInventory)
+    const itemsGained: string[] = []
+    if (action.addToInventory) {
+      this.progression.inventory.push(action.addToInventory)
+      itemsGained.push(action.addToInventory)
+    }
     if (action.addFact && !this.progression.known_facts.includes(action.addFact)) {
       this.progression.known_facts.push(action.addFact)
     }
@@ -247,11 +340,53 @@ export class FixtureEngine implements WorldEngine {
         (n) => n.label !== action.removeNoticedLabel,
       )
     }
-    return this.narrate(action.narrative)
+    const initiative = this.fireTriggers(
+      (t) => t.on.type === 'action' && t.on.actionId === action.id,
+    )
+    return {
+      ...this.narrate(action.narrative),
+      check: action.check,
+      initiative,
+      itemsGained,
+    }
   }
 
   private narrate(narrative: string): TurnOutput {
     return { kind: 'narrative', narrative, state: this.buildState() }
+  }
+
+  /** Fire matching once-only triggers whose speaker is in the player's location. */
+  private fireTriggers(
+    matches: (t: (typeof triggers)[number]) => boolean,
+  ): Array<{ speakerId: string; text: string }> {
+    const here = new Set(this.npcsHere().map((c) => c.id))
+    const fired: Array<{ speakerId: string; text: string }> = []
+    for (const t of triggers) {
+      if (this.firedTriggers.has(t.id) || !matches(t) || !here.has(t.npcId)) continue
+      this.firedTriggers.add(t.id)
+      fired.push({ speakerId: t.npcId, text: t.text })
+    }
+    return fired
+  }
+
+  /** Increment a skill counter and apply growth rules (round 6). */
+  private bumpCounter(key: string): SkillUp[] {
+    const next = (this.progression.skill_counters[key] ?? 0) + 1
+    this.progression.skill_counters[key] = next
+    const ups: SkillUp[] = []
+    for (const rule of growthRules) {
+      if (rule.counter !== key || next % rule.every !== 0) continue
+      const current = this.progression.attributes[rule.attribute]
+      if (current >= ATTRIBUTE_CAP) continue
+      this.progression.attributes[rule.attribute] = current + 1
+      ups.push({
+        attribute: rule.attribute,
+        label: ATTRIBUTE_LABELS[rule.attribute],
+        from: current,
+        to: current + 1,
+      })
+    }
+    return ups
   }
 
   // --- state assembly -----------------------------------------------------------
@@ -271,7 +406,7 @@ export class FixtureEngine implements WorldEngine {
       npcs: this.npcsHere().map((c) => ({
         character: structuredClone(c),
         glyph: npcExtras[c.id].glyph,
-        known: npcExtras[c.id].known,
+        known: this.knownNpcs.has(c.id),
       })),
       noticed: [...this.noticed[loc.id]],
       exits: ex.exits.map(({ toLocationId, direction, targetName }) => ({
@@ -279,13 +414,11 @@ export class FixtureEngine implements WorldEngine {
         direction,
         targetName,
       })),
-      // Unavailable actions are simply omitted from the list.
-      // TODO(previz-v2): visual treatment for unavailable actions is being
-      // decided in previz; when it lands, emit them with a disabled flag.
-      actionChips: [
-        ...baseChips,
-        ...ex.chips.filter((ch) => !this.usedActions.has(ch.id)),
-      ],
+      // Used one-time chips stay visible but dimmed (previz: disabled-dim).
+      actionChips: [...baseChips, ...ex.chips].map((chip) => ({
+        ...chip,
+        available: !this.usedActions.has(chip.id),
+      })),
       progression: structuredClone(this.progression),
       conditionLabel: CONDITION_LABELS[this.progression.condition],
     }
@@ -322,9 +455,5 @@ export class FixtureEngine implements WorldEngine {
     return this.characters.filter(
       (c) => !c.is_player && c.alive && c.location_id === locId,
     )
-  }
-
-  private bumpCounter(key: string): void {
-    this.progression.skill_counters[key] = (this.progression.skill_counters[key] ?? 0) + 1
   }
 }

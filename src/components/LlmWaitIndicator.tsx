@@ -1,15 +1,16 @@
 /**
- * Placeholder for the "LLM is thinking" indicator.
+ * "World is thinking" wait line (previz microdecision: wait-line).
  *
- * TODO(previz-v2): the visual design of the wait state is being decided in
- * previz right now; do not invent it here. In Phase 1 the fixture answers
- * instantly (brainstorm round 3), so this component practically never shows.
- * Phase 2 keeps it mounted behind the same `busy` flag and it becomes real.
+ * Rendered under the narrative while the engine is busy. The fixture answers
+ * instantly (brainstorm round 3: no artificial latency), so in Phase 1 this
+ * practically never shows; Phase 2 keeps it mounted behind the same `busy`
+ * flag and real HTTP latency makes it visible.
  */
 export function LlmWaitIndicator() {
   return (
-    <div className="text-[10px] uppercase tracking-[1px] text-faint">
-      мир отвечает...
+    <div className="mt-1.5 text-[11.5px] text-faint">
+      Мир думает{' '}
+      <span style={{ animation: 'ws-blink 1s step-end infinite' }}>_</span>
     </div>
   )
 }

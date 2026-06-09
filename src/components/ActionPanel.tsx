@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { INPUT_MAX_ROWS } from '../config'
-import type { ActionChip, UiNpc, UiWorldState } from '../types/ui'
-import { ChipButton, InfoChip, PanelTitle, SectionTag } from './chrome'
-import { LlmWaitIndicator } from './LlmWaitIndicator'
+import type { Attributes } from '../types/canon'
+import { ATTRIBUTE_LABELS, type ActionChip, type UiNpc, type UiWorldState } from '../types/ui'
+import { ChipButton, GearIcon, IconButton, InfoChip, PanelTitle, SectionTag } from './chrome'
 
 interface ActionPanelProps {
   state: UiWorldState
@@ -15,10 +15,29 @@ interface ActionPanelProps {
   onChip: (chip: ActionChip) => void
   /** Enter on an empty field: used to skip the running typewriter. */
   onEmptyEnter: () => void
+  onOpenSettings: () => void
 }
 
 /** Approx. pixel height of INPUT_MAX_ROWS text rows incl. padding. */
 const MAX_INPUT_PX = INPUT_MAX_ROWS * 20 + 18
+
+const ATTRIBUTE_MAX = 5
+
+/** Stat row: name, thin bar, number (round 7). */
+function StatRow({ name, value }: { name: string; value: number }) {
+  return (
+    <div className="flex items-center gap-2">
+      <span className="w-24 shrink-0 text-[11.5px] text-chip-ink">{name}</span>
+      <span className="h-1 flex-1 overflow-hidden rounded-full bg-pip-off">
+        <span
+          className="block h-full rounded-full bg-accent"
+          style={{ width: `${(value / ATTRIBUTE_MAX) * 100}%` }}
+        />
+      </span>
+      <span className="w-4 text-right text-[11.5px] text-muted">{value}</span>
+    </div>
+  )
+}
 
 export function ActionPanel({
   state,
@@ -29,6 +48,7 @@ export function ActionPanel({
   onClearAddressee,
   onChip,
   onEmptyEnter,
+  onOpenSettings,
 }: ActionPanelProps) {
   const [value, setValue] = useState('')
   const [history, setHistory] = useState<string[]>([])
@@ -113,15 +133,31 @@ export function ActionPanel({
     }
   }
 
+  const attrs = state.progression.attributes
+
   return (
     <section className="flex min-h-0 flex-col overflow-y-auto px-3.5 py-3">
-      <PanelTitle>Действие</PanelTitle>
+      <PanelTitle
+        right={
+          // Settings gear lives in the Action panel corner (round 7).
+          <IconButton label="Настройки" onClick={onOpenSettings}>
+            <GearIcon />
+          </IconButton>
+        }
+      >
+        Действие
+      </PanelTitle>
 
       <div className="mb-1.5 flex items-center gap-1.5 text-[11.5px] text-muted">
         {addressee ? (
           <>
             <span>
-              Обращаешься к: <b className="text-accent">{addressee.character.name}</b>
+              Обращаешься к:{' '}
+              <b className="text-accent">
+                {addressee.known
+                  ? addressee.character.name
+                  : (addressee.character.role ?? 'незнакомец')}
+              </b>
             </span>
             <button
               type="button"
@@ -149,14 +185,19 @@ export function ActionPanel({
             setHistIdx(null)
           }}
           onKeyDown={onKeyDown}
+          disabled={busy}
           placeholder={
-            addressee ? `Сказать (${addressee.character.name})...` : 'Что делаешь?'
+            addressee
+              ? `Сказать (${
+                  addressee.known
+                    ? addressee.character.name
+                    : (addressee.character.role ?? 'незнакомец')
+                })...`
+              : 'Что делаешь?'
           }
           className="max-h-[98px] w-full resize-none bg-transparent text-[13px] leading-snug text-ink outline-none placeholder:text-faint"
         />
       </div>
-
-      <div className="mt-1 h-4">{busy && <LlmWaitIndicator />}</div>
 
       <SectionTag>Действия</SectionTag>
       <div className="flex flex-wrap gap-1.5">
@@ -164,10 +205,14 @@ export function ActionPanel({
           <ChipButton
             key={chip.id}
             onClick={() => onChip(chip)}
+            disabled={!chip.available}
+            risky={chip.risky}
             title={
-              chip.kind === 'template'
-                ? 'Подставить в поле ввода'
-                : 'Выполнить сразу'
+              !chip.available
+                ? 'Сейчас недоступно'
+                : chip.kind === 'template'
+                  ? 'Подставить в поле ввода'
+                  : 'Выполнить сразу'
             }
           >
             {chip.label}
@@ -183,7 +228,12 @@ export function ActionPanel({
       </div>
 
       <SectionTag>Состояние</SectionTag>
-      <div className="text-[12.5px] text-cond-ok">{state.conditionLabel}</div>
+      <div className="mb-1.5 text-[12.5px] text-cond-ok">{state.conditionLabel}</div>
+      <div className="flex flex-col gap-1">
+        {(Object.keys(ATTRIBUTE_LABELS) as Array<keyof Attributes>).map((key) => (
+          <StatRow key={key} name={ATTRIBUTE_LABELS[key]} value={attrs[key]} />
+        ))}
+      </div>
     </section>
   )
 }
