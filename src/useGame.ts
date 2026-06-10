@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { LOCATION_SLIDE_MS, TOAST_MS } from './config'
+import { isStreamingEngine } from './engine/ClaudeEngine'
 import type { WorldEngine } from './engine/WorldEngine'
 import type {
   ActionChip,
@@ -45,6 +46,8 @@ export interface GameApi {
   toasts: Toast[]
   addresseeId: string | null
   busy: boolean
+  /** True while LLM narrative deltas are growing the last block (spike). */
+  streaming: boolean
   slidePhase: SlidePhase
   /** Increment -> the typewriter reveals the rest of the narrative. */
   skipSignal: number
@@ -77,6 +80,7 @@ export function useGame(
     restored?.recency ?? {},
   )
   const [busy, setBusy] = useState(false)
+  const [streaming, setStreaming] = useState(false)
   const [slidePhase, setSlidePhase] = useState<SlidePhase>('idle')
   const [skipSignal, setSkipSignal] = useState(0)
   const [injected, setInjected] = useState({ text: '', n: 0 })
@@ -87,6 +91,27 @@ export function useGame(
   const journalId = useRef(restored?.counters.journal ?? 1)
   const recencyCounter = useRef(restored?.counters.recency ?? 1)
   const toastId = useRef(1)
+  /** Block being grown by LLM stream deltas during the current turn. */
+  const streamBlockId = useRef<number | null>(null)
+
+  // Streaming engines (ClaudeEngine) push accumulated narrative text while
+  // the turn is in flight; it grows the last block, the typewriter follows.
+  useEffect(() => {
+    if (!isStreamingEngine(engine)) return
+    engine.onNarrativeStream((text) => {
+      setStreaming(true)
+      setNarrativeBlocks((b) => {
+        if (streamBlockId.current === null) {
+          streamBlockId.current = blockId.current++
+          return [...b, { id: streamBlockId.current, text }]
+        }
+        return b.map((x) =>
+          x.id === streamBlockId.current ? { ...x, text } : x,
+        )
+      })
+    })
+    return () => engine.onNarrativeStream(null)
+  }, [engine])
 
   useEffect(() => {
     let cancelled = false
@@ -230,10 +255,22 @@ export function useGame(
           case 'narrative': {
             setState(out.state)
             if (out.narrative) {
-              setNarrativeBlocks((b) => [
-                ...b,
-                { id: blockId.current++, text: out.narrative!, check: out.check },
-              ])
+              const liveId = streamBlockId.current
+              if (liveId !== null) {
+                // The streamed block already exists: settle its final text.
+                setNarrativeBlocks((b) =>
+                  b.map((x) =>
+                    x.id === liveId
+                      ? { ...x, text: out.narrative!, check: out.check }
+                      : x,
+                  ),
+                )
+              } else {
+                setNarrativeBlocks((b) => [
+                  ...b,
+                  { id: blockId.current++, text: out.narrative!, check: out.check },
+                ])
+              }
               newJournal.push({
                 id: journalId.current++,
                 t: 'narrative',
@@ -269,6 +306,8 @@ export function useGame(
         setTurn((t) => t + 1)
       } finally {
         setBusy(false)
+        setStreaming(false)
+        streamBlockId.current = null
       }
     },
     [engine, busy, slidePhase, bumpRecency, showToasts],
@@ -328,6 +367,7 @@ export function useGame(
     toasts,
     addresseeId,
     busy,
+    streaming,
     slidePhase,
     skipSignal,
     injected,

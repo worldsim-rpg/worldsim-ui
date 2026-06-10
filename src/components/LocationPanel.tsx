@@ -24,6 +24,8 @@ interface LocationPanelProps {
   /** Scrollback of the current location, oldest first (round 5). */
   blocks: NarrativeBlock[]
   busy: boolean
+  /** LLM deltas are growing the last block: the text itself shows progress. */
+  streaming: boolean
   skipSignal: number
   onSkip: () => void
   onExit: (exit: ExitChip) => void
@@ -34,6 +36,7 @@ export function LocationPanel({
   state,
   blocks,
   busy,
+  streaming,
   skipSignal,
   onSkip,
   onExit,
@@ -99,8 +102,9 @@ export function LocationPanel({
             </div>
           )
         })}
-        {/* Wait line under the narrative (previz: wait-line). */}
-        {busy && <LlmWaitIndicator />}
+        {/* Wait line under the narrative (previz: wait-line). Hidden once
+            stream deltas start arriving — the growing text shows progress. */}
+        {busy && !streaming && <LlmWaitIndicator />}
       </div>
 
       <div className="shrink-0">

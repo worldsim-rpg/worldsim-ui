@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 
 /**
- * Typewriter effect over `text`. Restarts when `text` changes; any change of
- * `skipSignal` reveals the whole text at once (skip is wired to a click on
- * the narrative and to Enter in the empty input field).
+ * Typewriter effect over `text`. Restarts when `text` changes — unless the
+ * new text extends the previous one (LLM streaming grows the block; the
+ * reveal just continues). Any change of `skipSignal` reveals the whole text
+ * at once (skip is wired to a click on the narrative and to Enter in the
+ * empty input field).
  */
 export function useTypewriter(
   text: string,
@@ -12,9 +14,11 @@ export function useTypewriter(
 ): { visible: string; done: boolean } {
   const [count, setCount] = useState(0)
   const lastSkip = useRef(skipSignal)
+  const prevText = useRef(text)
 
   useEffect(() => {
-    setCount(0)
+    if (!text.startsWith(prevText.current)) setCount(0)
+    prevText.current = text
   }, [text])
 
   const done = count >= text.length
