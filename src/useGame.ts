@@ -100,15 +100,17 @@ export function useGame(
     if (!isStreamingEngine(engine)) return
     engine.onNarrativeStream((text) => {
       setStreaming(true)
-      setNarrativeBlocks((b) => {
-        if (streamBlockId.current === null) {
-          streamBlockId.current = blockId.current++
-          return [...b, { id: streamBlockId.current, text }]
-        }
-        return b.map((x) =>
-          x.id === streamBlockId.current ? { ...x, text } : x,
-        )
-      })
+      // Refs are mutated OUTSIDE the state updater: StrictMode double-invokes
+      // updaters in dev, and an impure updater would lose the block.
+      if (streamBlockId.current === null) {
+        streamBlockId.current = blockId.current++
+      }
+      const id = streamBlockId.current
+      setNarrativeBlocks((b) =>
+        b.some((x) => x.id === id)
+          ? b.map((x) => (x.id === id ? { ...x, text } : x))
+          : [...b, { id, text }],
+      )
     })
     return () => engine.onNarrativeStream(null)
   }, [engine])
