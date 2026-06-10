@@ -25,12 +25,34 @@ npm run preview    # просмотр production-сборки
 ```
 src/
   types/        TS-зеркала канонических моделей (worldsim_schemas) + UI-типы
-  engine/       интерфейс WorldEngine + фикстурная реализация
+  engine/       интерфейс WorldEngine + фикстурная и Claude-реализации
   fixture/      мини-мир «Соляные Берега»: 3 локации, 6 NPC
   components/   панели, плитки-щиты, SVG-глифы, typewriter
   lib/          утилиты (цвет из хеша id)
   config.ts     константы (скорость typewriter, длительность fade)
+server/         спайк: мини-сервер с ключом Anthropic (см. ниже)
 ```
+
+## Спайк: движок Claude (ветка spike/claude-engine)
+
+Экспериментальный «живой мир»: нарратив и реплики NPC генерирует Claude
+(`claude-opus-4-8`) через локальный сервер. Механика (переходы, предметы,
+проверки, прогрессия) остаётся фикстурной.
+
+```bash
+# 1. Сервер (ключ ТОЛЬКО здесь, в env)
+cd server
+npm install
+cp .env.example .env   # вписать ANTHROPIC_API_KEY
+npm run dev            # http://localhost:8787
+
+# 2. UI (в другом терминале, из корня репо)
+npm run dev            # http://localhost:5173, /api проксируется на 8787
+```
+
+В игре: настройки (шестерёнка) -> «Движок мира» -> Claude. Дефолт — Fixture;
+без сервера/ключа UI работает как раньше (тексты фикстурные). Ключ не попадает
+в браузерный бандл, git и логи (`server/.env` в .gitignore).
 
 ## Ветки
 

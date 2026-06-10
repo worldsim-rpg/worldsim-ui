@@ -17,3 +17,9 @@ export const TOAST_MS = 2500
 
 /** localStorage key for the autosave (brainstorm round 8). */
 export const SAVE_KEY = 'worldsim-ui-save-v1'
+
+/** localStorage key for the engine choice (spike: Fixture / Claude). */
+export const ENGINE_KEY = 'worldsim-ui-engine-v1'
+
+/** World engine selector (spike): deterministic fixture or live Claude. */
+export type EngineKind = 'fixture' | 'claude'

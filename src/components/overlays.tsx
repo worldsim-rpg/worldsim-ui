@@ -1,6 +1,7 @@
 /* Modal overlays: journal (rounds 5-6) and settings (rounds 7-8). */
 
 import { useEffect, useState, type ReactNode } from 'react'
+import type { EngineKind } from '../config'
 import type { JournalEntry, UiWorldState } from '../types/ui'
 
 function Overlay({
@@ -144,12 +145,41 @@ export function JournalOverlay({
   )
 }
 
+/** One option of the engine selector (spike). */
+function EngineOption({
+  label,
+  active,
+  onClick,
+}: {
+  label: string
+  active: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`cursor-pointer rounded border px-2.5 py-0.5 text-[11.5px] transition-colors ${
+        active
+          ? 'border-accent bg-chip-bg text-ink'
+          : 'border-line text-muted hover:border-accent hover:text-ink'
+      }`}
+    >
+      {label}
+    </button>
+  )
+}
+
 export function SettingsOverlay({
   state,
+  engineKind,
+  onEngineChange,
   onRestart,
   onClose,
 }: {
   state: UiWorldState
+  engineKind: EngineKind
+  onEngineChange: (kind: EngineKind) => void
   onRestart: () => void
   onClose: () => void
 }) {
@@ -162,6 +192,29 @@ export function SettingsOverlay({
           <span className="text-muted">Мир</span>
           <span>{state.title}</span>
         </div>
+        {/* Engine toggle (spike): live narrative and NPC lines via the
+            local server; mechanics stay fixture-driven either way. */}
+        <div className="flex items-center justify-between">
+          <span className="text-muted">Движок мира</span>
+          <span className="flex gap-1.5">
+            <EngineOption
+              label="Fixture"
+              active={engineKind === 'fixture'}
+              onClick={() => onEngineChange('fixture')}
+            />
+            <EngineOption
+              label="Claude"
+              active={engineKind === 'claude'}
+              onClick={() => onEngineChange('claude')}
+            />
+          </span>
+        </div>
+        {engineKind === 'claude' && (
+          <p className="text-[10.5px] leading-snug text-faint">
+            Режим Claude требует запущенный локальный сервер (см. server/).
+            Без сервера тексты остаются фикстурными.
+          </p>
+        )}
         <div className="flex justify-between">
           <span className="text-muted">Сложность</span>
           <span>{state.difficultyLabel.replace('сложность: ', '')}</span>

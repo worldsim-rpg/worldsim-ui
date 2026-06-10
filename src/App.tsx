@@ -4,8 +4,10 @@ import { ConversePanel } from './components/ConversePanel'
 import { LocationPanel } from './components/LocationPanel'
 import { JournalOverlay, SettingsOverlay } from './components/overlays'
 import { Toasts } from './components/Toasts'
-import { LOCATION_SLIDE_MS, SAVE_KEY } from './config'
+import { ENGINE_KEY, LOCATION_SLIDE_MS, SAVE_KEY, type EngineKind } from './config'
+import { ClaudeEngine } from './engine/ClaudeEngine'
 import { FixtureEngine, type FixtureSave } from './engine/FixtureEngine'
+import type { WorldEngine } from './engine/WorldEngine'
 import { meta as fixtureMeta } from './fixture/world'
 import { useGame, type SlidePhase, type UiSave } from './useGame'
 
@@ -14,6 +16,17 @@ interface SaveBlob {
   v: 1
   engine: FixtureSave
   ui: UiSave
+}
+
+/** Spike: both engines share the fixture snapshot, so saves interchange. */
+type GameEngine = WorldEngine & { dump(): FixtureSave }
+
+function readEngineKind(): EngineKind {
+  return localStorage.getItem(ENGINE_KEY) === 'claude' ? 'claude' : 'fixture'
+}
+
+function createEngine(kind: EngineKind, save?: FixtureSave): GameEngine {
+  return kind === 'claude' ? new ClaudeEngine(save) : new FixtureEngine(save)
 }
 
 function readSave(): SaveBlob | null {
@@ -46,18 +59,23 @@ const SLIDE_STYLES: Record<SlidePhase, CSSProperties> = {
 
 interface GameSession {
   id: number
-  engine: FixtureEngine
+  engine: GameEngine
   restored: UiSave | null
 }
 
 export default function App() {
   const [session, setSession] = useState<GameSession | null>(null)
   const [saveExists, setSaveExists] = useState(() => readSave() !== null)
+  const [engineKind, setEngineKind] = useState<EngineKind>(() => readEngineKind())
 
   const newGame = useCallback(() => {
     localStorage.removeItem(SAVE_KEY)
     setSaveExists(false)
-    setSession((s) => ({ id: (s?.id ?? 0) + 1, engine: new FixtureEngine(), restored: null }))
+    setSession((s) => ({
+      id: (s?.id ?? 0) + 1,
+      engine: createEngine(readEngineKind()),
+      restored: null,
+    }))
   }, [])
 
   const continueGame = useCallback(() => {
@@ -68,9 +86,25 @@ export default function App() {
     }
     setSession((s) => ({
       id: (s?.id ?? 0) + 1,
-      engine: new FixtureEngine(blob.engine),
+      engine: createEngine(readEngineKind(), blob.engine),
       restored: blob.ui,
     }))
+  }, [])
+
+  // Engine toggle (spike): persist the choice and hot-swap by rebuilding the
+  // session from the latest autosave; the world state carries over.
+  const changeEngine = useCallback((kind: EngineKind) => {
+    localStorage.setItem(ENGINE_KEY, kind)
+    setEngineKind(kind)
+    setSession((s) => {
+      if (!s) return s
+      const blob = readSave()
+      return {
+        id: s.id + 1,
+        engine: createEngine(kind, blob?.engine ?? s.engine.dump()),
+        restored: blob?.ui ?? s.restored,
+      }
+    })
   }, [])
 
   const toTitle = useCallback(() => {
@@ -94,6 +128,8 @@ export default function App() {
       key={session.id}
       engine={session.engine}
       restored={session.restored}
+      engineKind={engineKind}
+      onEngineChange={changeEngine}
       onRestart={toTitle}
     />
   )
@@ -145,10 +181,14 @@ function TitleScreen({
 function GameScreen({
   engine,
   restored,
+  engineKind,
+  onEngineChange,
   onRestart,
 }: {
-  engine: FixtureEngine
+  engine: GameEngine
   restored: UiSave | null
+  engineKind: EngineKind
+  onEngineChange: (kind: EngineKind) => void
   onRestart: () => void
 }) {
   const persist = useCallback(
@@ -194,6 +234,7 @@ function GameScreen({
           state={state}
           blocks={game.narrativeBlocks}
           busy={game.busy}
+          streaming={game.streaming}
           skipSignal={game.skipSignal}
           onSkip={game.bumpSkip}
           onExit={game.goExit}
@@ -223,6 +264,8 @@ function GameScreen({
       {settingsOpen && (
         <SettingsOverlay
           state={state}
+          engineKind={engineKind}
+          onEngineChange={onEngineChange}
           onRestart={onRestart}
           onClose={() => setSettingsOpen(false)}
         />
